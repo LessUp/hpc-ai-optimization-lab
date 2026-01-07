@@ -1,0 +1,89 @@
+# Documentation Build and Deploy
+name: Documentation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'src/**/*.cuh'
+      - 'src/**/*.cu'
+      - 'python/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'docs/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-docs:
+    name: Build Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Doxygen
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y doxygen graphviz
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: |
+          pip install sphinx sphinx-rtd-theme breathe myst-parser sphinx-copybutton
+
+      - name: Build Doxygen (C++/CUDA API)
+        run: |
+          cd docs
+          doxygen Doxyfile
+
+      - name: Build Sphinx (Python API & Guides)
+        run: |
+          cd docs/python
+          sphinx-build -b html . _build/html
+
+      - name: Combine documentation
+        run: |
+          mkdir -p docs/_site
+          # Copy main docs
+          cp -r docs/*.md docs/_site/
+          # Copy Doxygen output
+          if [ -d docs/api/html ]; then
+            cp -r docs/api/html docs/_site/cpp-api
+          fi
+          # Copy Sphinx output
+          if [ -d docs/python/_build/html ]; then
+            cp -r docs/python/_build/html docs/_site/python-api
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/_site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build-docs
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
