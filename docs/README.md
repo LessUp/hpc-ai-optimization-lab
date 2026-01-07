@@ -94,6 +94,44 @@ ncu --set roofline -o roofline ./your_app
 - 考虑寄存器压力
 - 使用 Occupancy Calculator
 
+## 构建文档
+
+### 安装依赖
+
+```bash
+# Doxygen (C++/CUDA API)
+sudo apt-get install doxygen graphviz
+
+# Sphinx (Python API)
+pip install sphinx sphinx-rtd-theme breathe myst-parser sphinx-copybutton
+```
+
+### 构建 C++/CUDA API 文档
+
+```bash
+cd docs
+doxygen Doxyfile
+# 输出在 docs/api/html/
+```
+
+### 构建 Python API 文档
+
+```bash
+cd docs/python
+sphinx-build -b html . _build/html
+# 输出在 docs/python/_build/html/
+```
+
+### 本地预览
+
+```bash
+# C++ API
+python -m http.server 8000 -d docs/api/html
+
+# Python API
+python -m http.server 8001 -d docs/python/_build/html
+```
+
 ## 贡献文档
 
 欢迎贡献更多文档！请遵循以下格式：
