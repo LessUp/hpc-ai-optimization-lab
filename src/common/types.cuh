@@ -82,7 +82,7 @@ enum class DataType {
 };
 
 // Get size of data type
-inline size_t dtype_size(DataType dtype) {
+constexpr size_t dtype_size(DataType dtype) {
     switch (dtype) {
         case DataType::Float32: return 4;
         case DataType::Float16: return 2;

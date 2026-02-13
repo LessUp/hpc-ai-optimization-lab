@@ -1,14 +1,8 @@
 #include "rmsnorm.cuh"
 #include "../common/cuda_check.cuh"
+#include "../common/reduce.cuh"
 
 namespace hpc::reduction {
-
-__device__ __forceinline__ float warp_reduce_sum_rms(float val) {
-    for (int offset = 16; offset > 0; offset /= 2) {
-        val += __shfl_down_sync(0xffffffff, val, offset);
-    }
-    return val;
-}
 
 template <typename T>
 __global__ void rms_norm_kernel(const T* __restrict__ input,
@@ -25,10 +19,11 @@ __global__ void rms_norm_kernel(const T* __restrict__ input,
         float val = static_cast<float>(row_input[i]);
         sum_sq += val * val;
     }
-    sum_sq = warp_reduce_sum_rms(sum_sq);
-    sum_sq = __shfl_sync(0xffffffff, sum_sq, 0);
-
-    float rms = rsqrtf(sum_sq / hidden_size + eps);
+    sum_sq = hpc::block_reduce_sum(sum_sq);
+    __shared__ float s_rms;
+    if (threadIdx.x == 0) s_rms = rsqrtf(sum_sq / hidden_size + eps);
+    __syncthreads();
+    float rms = s_rms;
 
     // Normalize and apply scale
     for (int i = threadIdx.x; i < hidden_size; i += blockDim.x) {

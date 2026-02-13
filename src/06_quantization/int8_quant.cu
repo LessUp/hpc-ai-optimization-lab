@@ -1,5 +1,6 @@
 #include "int8_quant.cuh"
 #include "../common/cuda_check.cuh"
+#include "../common/reduce.cuh"
 #include <cfloat>
 
 namespace hpc::quantization {
@@ -17,10 +18,8 @@ __global__ void compute_scale_kernel(const float* __restrict__ input,
         max_abs = fmaxf(max_abs, fabsf(row_input[i]));
     }
     
-    // Warp reduction
-    for (int offset = 16; offset > 0; offset /= 2) {
-        max_abs = fmaxf(max_abs, __shfl_down_sync(0xffffffff, max_abs, offset));
-    }
+    // Block-level reduction for correct results with >32 threads
+    max_abs = hpc::block_reduce_max(max_abs);
     
     if (threadIdx.x == 0) {
         scale[row] = max_abs / 127.0f;
@@ -34,7 +33,7 @@ __global__ void quantize_kernel(const float* __restrict__ input,
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     int total = rows * cols;
     
-    if (idx < total) {
+    for (; idx < total; idx += blockDim.x * gridDim.x) {
         int row = idx / cols;
         float inv_scale = 1.0f / scale[row];
         float val = input[idx] * inv_scale;

@@ -1,24 +1,10 @@
 #include "softmax.cuh"
 #include "../common/cuda_check.cuh"
+#include "../common/reduce.cuh"
 #include <cfloat>
 #include <cmath>
 
 namespace hpc::reduction {
-
-// Warp-level reduction using shuffle
-__device__ __forceinline__ float warp_reduce_max(float val) {
-    for (int offset = 16; offset > 0; offset /= 2) {
-        val = fmaxf(val, __shfl_down_sync(0xffffffff, val, offset));
-    }
-    return val;
-}
-
-__device__ __forceinline__ float warp_reduce_sum(float val) {
-    for (int offset = 16; offset > 0; offset /= 2) {
-        val += __shfl_down_sync(0xffffffff, val, offset);
-    }
-    return val;
-}
 
 // Online softmax kernel (single pass)
 template <typename T>
@@ -42,17 +28,22 @@ __global__ void softmax_online_kernel(const T* __restrict__ input,
         sum_exp = sum_exp * expf(old_max - max_val) + expf(val - max_val);
     }
 
-    // Warp reduction for max
-    max_val = warp_reduce_max(max_val);
-    max_val = __shfl_sync(0xffffffff, max_val, 0);
+    // Block reduction for max
+    max_val = hpc::block_reduce_max(max_val);
+    __shared__ float s_max, s_sum;
+    if (threadIdx.x == 0) s_max = max_val;
+    __syncthreads();
+    max_val = s_max;
 
     // Recompute sum with correct max
     sum_exp = 0.0f;
     for (int i = threadIdx.x; i < seq_len; i += blockDim.x) {
         sum_exp += expf(static_cast<float>(row_input[i]) - max_val);
     }
-    sum_exp = warp_reduce_sum(sum_exp);
-    sum_exp = __shfl_sync(0xffffffff, sum_exp, 0);
+    sum_exp = hpc::block_reduce_sum(sum_exp);
+    if (threadIdx.x == 0) s_sum = sum_exp;
+    __syncthreads();
+    sum_exp = s_sum;
 
     // Compute softmax output
     float inv_sum = 1.0f / sum_exp;

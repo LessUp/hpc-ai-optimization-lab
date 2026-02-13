@@ -1,14 +1,8 @@
 #include "layernorm.cuh"
 #include "../common/cuda_check.cuh"
+#include "../common/reduce.cuh"
 
 namespace hpc::reduction {
-
-__device__ __forceinline__ float warp_reduce_sum(float val) {
-    for (int offset = 16; offset > 0; offset /= 2) {
-        val += __shfl_down_sync(0xffffffff, val, offset);
-    }
-    return val;
-}
 
 template <typename T>
 __global__ void layer_norm_kernel(const T* __restrict__ input,
@@ -25,9 +19,11 @@ __global__ void layer_norm_kernel(const T* __restrict__ input,
     for (int i = threadIdx.x; i < hidden_size; i += blockDim.x) {
         sum += static_cast<float>(row_input[i]);
     }
-    sum = warp_reduce_sum(sum);
-    sum = __shfl_sync(0xffffffff, sum, 0);
-    float mean = sum / hidden_size;
+    sum = hpc::block_reduce_sum(sum);
+    __shared__ float s_mean, s_inv_std;
+    if (threadIdx.x == 0) s_mean = sum / hidden_size;
+    __syncthreads();
+    float mean = s_mean;
 
     // Compute variance
     float var_sum = 0.0f;
@@ -35,9 +31,10 @@ __global__ void layer_norm_kernel(const T* __restrict__ input,
         float diff = static_cast<float>(row_input[i]) - mean;
         var_sum += diff * diff;
     }
-    var_sum = warp_reduce_sum(var_sum);
-    var_sum = __shfl_sync(0xffffffff, var_sum, 0);
-    float inv_std = rsqrtf(var_sum / hidden_size + eps);
+    var_sum = hpc::block_reduce_sum(var_sum);
+    if (threadIdx.x == 0) s_inv_std = rsqrtf(var_sum / hidden_size + eps);
+    __syncthreads();
+    float inv_std = s_inv_std;
 
     // Normalize and apply affine transform
     for (int i = threadIdx.x; i < hidden_size; i += blockDim.x) {

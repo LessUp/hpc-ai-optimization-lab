@@ -13,15 +13,10 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # CUDA settings
 set(CMAKE_CUDA_SEPARABLE_COMPILATION ON)
 
-# Auto-detect GPU architecture
+# Auto-detect GPU architecture (CMake 3.24+ supports 'native')
 if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-    include(FindCUDA/select_compute_arch)
-    CUDA_DETECT_INSTALLED_GPUS(INSTALLED_GPU_CCS_1)
-    string(STRIP "${INSTALLED_GPU_CCS_1}" INSTALLED_GPU_CCS_2)
-    string(REPLACE " " ";" INSTALLED_GPU_CCS_3 "${INSTALLED_GPU_CCS_2}")
-    string(REPLACE "." "" INSTALLED_GPU_CCS_4 "${INSTALLED_GPU_CCS_3}")
-    set(CMAKE_CUDA_ARCHITECTURES ${INSTALLED_GPU_CCS_4})
-    message(STATUS "Auto-detected CUDA architectures: ${CMAKE_CUDA_ARCHITECTURES}")
+    set(CMAKE_CUDA_ARCHITECTURES native)
+    message(STATUS "Using native CUDA architecture detection")
 endif()
 
 # FetchContent for dependencies
